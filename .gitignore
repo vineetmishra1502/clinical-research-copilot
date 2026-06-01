@@ -1,0 +1,12 @@
+.env
+mcp
+documents_metadata.xlsx
+mcp_server.md
+pubmed_fetch_test.ipynb
+test_debug.py
+test_pipeline_timing.py
+tracing.py
+.venv
+.claude
+posgrest_data_fetch.ipynb
+__pycache__
