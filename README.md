@@ -2,7 +2,7 @@
 
 **LangGraph-powered multi-agent research platform for oncology evidence synthesis.**
 
-<video src="./media/Clinical Research Copilot.mp4" width="100%" controls></video>
+<video src="./media/Clinical_Research_Copilot.mp4" width="100%" controls></video>
 
 A production-grade multi-agent Retrieval-Augmented Generation system that searches, grades, and synthesizes clinical evidence from 12,000+ PubMed abstracts across 5 oncology/pharma drugs. Built with LangGraph, pgvector, and hybrid retrieval (dense + BM25 + Cohere rerank).
 
