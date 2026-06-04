@@ -10,3 +10,5 @@ tracing.py
 .claude
 posgrest_data_fetch.ipynb
 __pycache__
+mcp_server.py
+test_mcp_protocol.py
