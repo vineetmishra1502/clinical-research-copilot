@@ -30,12 +30,22 @@ Pydantic response models:
 Run:
   uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
   or: python api/main.py
+
+Langfuse changes (marked # LANGFUSE):
+  - Added uuid import
+  - Added langfuse_setup import
+  - POST /research: handler per request, passed to run_research()
+  - POST /search: handler per request, flushed after retrieve()
+  - GET /health: "langfuse" key added to api_keys (informational only)
+  - health "healthy" logic changed from all(api_keys.values()) to
+    explicit openai+cohere check — Langfuse is optional, not required
 """
 
 import asyncio
 import os
 import sys
 import time
+import uuid                                                        # LANGFUSE
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -55,6 +65,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 from retriever import retrieve, MetadataFilter, RetrievedChunk, close_pool
 from agents import run_research, AgentOutput, AgentSection
 from query_rewriter import DB_VOCABULARY
+from langfuse_setup import get_callback_handler, flush_handler, langfuse_enabled  # LANGFUSE
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -278,11 +289,24 @@ async def research(request: ResearchRequest):
     evidence, then a synthesizer merges findings into a cited research brief.
 
     Takes 15-30 seconds depending on query complexity and number of agents.
+    Each request produces one Langfuse trace when LANGFUSE_PUBLIC_KEY is set.
     """
+    start      = time.perf_counter()
+    request_id = str(uuid.uuid4())[:8]
+
+    handler, invoke_config = get_callback_handler(                 # LANGFUSE
+        session_id = f"research-{request_id}",
+        trace_name = "research-pipeline",
+        metadata   = {
+            "endpoint":   "/research",
+            "query":      request.query[:200],
+            "request_id": request_id,
+        },
+    )
+
     try:
-        start = time.perf_counter()
         output = await asyncio.wait_for(
-            run_research(request.query),
+            run_research(request.query, invoke_config=invoke_config), # LANGFUSE
             timeout=120,
         )
         elapsed = time.perf_counter() - start
@@ -298,6 +322,8 @@ async def research(request: ResearchRequest):
             status_code=500,
             detail=f"Research failed: {type(e).__name__}: {e}",
         )
+    finally:
+        flush_handler(handler)                                     # LANGFUSE
 
 
 @app.post("/search", response_model=SearchResponse)
@@ -322,6 +348,21 @@ async def search(request: SearchRequest):
             study_type  = request.study_type,
             endpoints   = request.endpoints,
         )
+
+    request_id = str(uuid.uuid4())[:8]                            # LANGFUSE
+
+    handler, _ = get_callback_handler(                            # LANGFUSE
+        session_id = f"search-{request_id}",
+        trace_name = "search-pipeline",
+        metadata   = {
+            "endpoint":    "/search",
+            "query":       request.query[:200],
+            "request_id":  request_id,
+            "has_filters": filters is not None,
+            "drug":        request.drug,
+            "cancer_type": request.cancer_type,
+        },
+    )
 
     try:
         start = time.perf_counter()
@@ -353,6 +394,8 @@ async def search(request: SearchRequest):
             status_code=500,
             detail=f"Search failed: {type(e).__name__}: {e}",
         )
+    finally:
+        flush_handler(handler)                                    # LANGFUSE
 
 
 @app.get("/drugs", response_model=DrugsResponse)
@@ -382,6 +425,11 @@ async def list_drugs():
 async def health_check():
     """
     Health check — verifies database connectivity and API key presence.
+
+    LANGFUSE: "langfuse" key added to api_keys (informational only).
+    Health status requires only openai + cohere — langfuse is optional.
+    Original used all(api_keys.values()) which would flip to "degraded"
+    when langfuse keys are absent. New logic is explicit about what matters.
     """
     # Check database
     db_status = "unknown"
@@ -396,12 +444,20 @@ async def health_check():
 
     # Check API keys (presence only, not validity)
     api_keys = {
-        "openai":   bool(os.getenv("OPENAI_API_KEY", "").startswith("sk-")),
-        "cohere":   bool(os.getenv("COHERE_API_KEY", "")),
+        "openai":    bool(os.getenv("OPENAI_API_KEY", "").startswith("sk-")),
+        "cohere":    bool(os.getenv("COHERE_API_KEY", "")),
         "langsmith": bool(os.getenv("LANGCHAIN_API_KEY", "").startswith("ls")),
+        "langfuse":  langfuse_enabled(),                          # LANGFUSE
     }
 
-    status = "healthy" if db_status == "connected" and all(api_keys.values()) else "degraded"
+    # LANGFUSE: healthy = db + openai + cohere only.
+    # langfuse/langsmith are optional — not a health requirement.
+    # (Original: all(api_keys.values()) — would break if langfuse absent)
+    status = "healthy" if (
+        db_status == "connected"
+        and api_keys["openai"]
+        and api_keys["cohere"]
+    ) else "degraded"
 
     return HealthResponse(
         status   = status,

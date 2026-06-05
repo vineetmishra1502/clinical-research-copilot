@@ -158,6 +158,7 @@ User query: "What is the OS benefit of pembrolizumab in NSCLC?"
 | Structured output | LangChain with_structured_output + Pydantic |
 | API | FastAPI + Pydantic response models |
 | Frontend | Streamlit (pipeline stepper, evidence cards, PubMed links) |
+| Observability | Langfuse (per-request traces, token counts, cost, latency) |
 | Data source | PubMed E-utilities API (12,000+ abstracts) |
 
 ## Performance
@@ -208,10 +209,10 @@ DB_NAME=pharma_rag
 DB_USER=vineet
 DB_PASSWORD=devpassword
 
-# LangSmith (optional — tracing)
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY=ls__...
-LANGCHAIN_PROJECT=pharma-rag
+# Langfuse observability (get keys from cloud.langfuse.com — free tier)
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_HOST=https://cloud.langfuse.com
 ```
 
 ### 3. Start PostgreSQL with pgvector
@@ -346,7 +347,7 @@ curl http://localhost:8000/health
 {
   "status": "healthy",
   "database": "connected",
-  "api_keys": {"openai": true, "cohere": true, "langsmith": true}
+  "api_keys": {"openai": true, "cohere": true, "langfuse": true}
 }
 ```
 
@@ -364,6 +365,7 @@ curl http://localhost:8000/health
 ```
 agentic-rag-pharma/
 ├── .env                          # API keys and DB credentials
+├── langfuse_setup.py             # Langfuse observability (v4 compatible)
 ├── setup_db.py                   # PostgreSQL schema + indexes
 ├── ingest.py                     # PubMed data ingestion pipeline
 ├── query_rewriter.py             # LLM query normalization + filter extraction

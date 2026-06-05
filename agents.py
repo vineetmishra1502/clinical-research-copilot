@@ -58,6 +58,7 @@ from dotenv import load_dotenv
 
 from retriever import MetadataFilter
 from grader import GraderOutput, GradedChunk, retrieve_and_grade
+from langfuse_setup import get_callback_handler  # noqa: F401 — LANGFUSE CHANGE 1 of 2
 
 load_dotenv()
 
@@ -924,7 +925,17 @@ _graph = build_graph()
 # 13. PUBLIC API
 # ─────────────────────────────────────────────────────────────────────
 
-async def run_research(query: str) -> AgentOutput:
+# LANGFUSE CHANGE 2 of 2:
+# Original signature:  async def run_research(query: str) -> AgentOutput:
+# New signature adds:  callback_handler=None
+# Original body:       result = await _graph.ainvoke(initial_state)
+# New body adds:       invoke_config block before ainvoke
+
+async def run_research(
+    query:            str,
+    callback_handler = None,   # kept for backward compat, not used directly
+    invoke_config:    dict = None,   # Langfuse config from get_callback_handler()
+) -> AgentOutput:
     """
     Main entry point for agents.py.
     Called by mcp_server.py and api/main.py.
@@ -933,7 +944,10 @@ async def run_research(query: str) -> AgentOutput:
       supervisor → specialist agents (parallel) → synthesizer
 
     Arguments:
-      query: raw user query — any format, any abbreviation
+      query:         raw user query — any format, any abbreviation
+      invoke_config: config dict from langfuse_setup.get_callback_handler()
+                     e.g. {"callbacks": [handler], "run_name": "...", "metadata": {...}}
+                     Pass None (default) to run without tracing — identical behaviour.
 
     Returns:
       AgentOutput with complete research brief, citations, verdict
@@ -949,7 +963,8 @@ async def run_research(query: str) -> AgentOutput:
         "final_output":    None,
     }
 
-    result = await _graph.ainvoke(initial_state)
+    # invoke_config=None or {} are both no-ops — identical to original
+    result = await _graph.ainvoke(initial_state, config=invoke_config or {})
     return result["final_output"]
 
 
