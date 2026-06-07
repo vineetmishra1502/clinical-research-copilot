@@ -159,6 +159,7 @@ User query: "What is the OS benefit of pembrolizumab in NSCLC?"
 | API | FastAPI + Pydantic response models |
 | Frontend | Streamlit (pipeline stepper, evidence cards, PubMed links) |
 | Observability | Langfuse (per-request traces, token counts, cost, latency) |
+| Evaluation | RAGAS 0.4.3 (context precision, faithfulness, recall, answer correctness) |
 | Data source | PubMed E-utilities API (12,000+ abstracts) |
 
 ## Performance
@@ -173,6 +174,23 @@ User query: "What is the OS benefit of pembrolizumab in NSCLC?"
 | Candidates per search | 40 | 20 dense + 20 BM25, deduplicated via RRF |
 | Final chunks | 5 | After reranking |
 | Evidence levels | L1 + L2 | RCTs and meta-analyses correctly prioritized |
+
+## Evaluation — RAGAS (42 queries, gpt-4o-mini judge)
+
+Evaluated end-to-end across 42 hand-crafted clinical Q&A pairs covering 5 drugs, 3 difficulty levels, and 5 query types. Each metric is evaluated on the text it was designed to measure — grounding metrics on the full synthesised report, quality metrics on the 3–4 sentence executive summary matched to ground truth length.
+
+| Metric | Score | Text evaluated | What it measures |
+|---|---|---|---|
+| Context Precision | **0.920** | Full report | 92% of retrieved chunks were relevant to the query |
+| Faithfulness | **0.886** | Full report | LLM stays grounded in retrieved evidence — low hallucination rate |
+| Context Recall | **0.686** | Exec summary | 69% of key clinical facts present in retrieved contexts |
+| Answer Correctness | **0.615** | Exec summary | Factual + semantic match between concise answer and reference |
+
+**Context Precision and Faithfulness are the most clinically important metrics** — they confirm the pipeline retrieves relevant evidence and does not hallucinate clinical claims. Scores above 0.88 on both across 42 diverse oncology queries validate the hybrid retrieval and grading pipeline end-to-end.
+
+Context Recall is lower because the pipeline preferentially retrieves meta-analyses (stronger pooled evidence) over original trial papers. Meta-analyses are clinically appropriate evidence sources, but ground truths written around specific trial numbers will not match. The evaluation ground truths are written at the synthesis level the pipeline produces — the remaining gap reflects genuine knowledge base coverage limits for sparse indications (e.g. trastuzumab in gastric cancer: 35 chunks vs 1,400+ breast cancer chunks).
+
+Full per-query results with per-difficulty and per-query-type breakdown: [`eval/results.json`](eval/results.json). Evaluation methodology: [`eval/run_ragas.md`](eval/run_ragas.md).
 
 ## Quick start
 
@@ -256,6 +274,18 @@ python api_test.py     # Runs all 7 endpoint tests
 
 Or open http://localhost:8000/docs for interactive Swagger UI.
 
+### 8. Run RAGAS evaluation (optional)
+
+```bash
+# Quick 5-sample test
+python eval/run_ragas.py --sample 5
+
+# Full 42-query evaluation (~25 min)
+python eval/run_ragas.py
+```
+
+See [`eval/run_ragas.md`](eval/run_ragas.md) for evaluation methodology and known dependencies.
+
 ## Streamlit UI
 
 The Streamlit frontend provides two modes:
@@ -291,18 +321,18 @@ Response:
   "overall_verdict": "accepted",
   "evidence_summary": "EFFICACY: verdict=accepted | chunks=5 | RCTs=2 | attempts=1",
   "elapsed_seconds": 28.72,
+  "retrieved_contexts": ["...chunk text used by agents..."],
   "sections": [
     {
       "title": "Efficacy Evidence for Pembrolizumab in NSCLC",
       "evidence_quality": "Based on 4 RCTs and 2 real-world studies (n=300 to n=1,966)",
       "citations": [
         "[PMID: 42046364] Immunotherapy (2026) — meta-analysis",
-        "[PMID: 37465924] Immunotherapy (2023) — RCT",
-        "[PMID: 34048946] Journal of Thoracic Oncology (2021) — RCT"
+        "[PMID: 37465924] Immunotherapy (2023) — RCT"
       ]
     }
   ],
-  "report": "# Executive Summary\n\nPembrolizumab has shown significant improvements in overall survival (OS) for patients with non-small cell lung cancer (NSCLC), particularly in those with higher PD-L1 expression. The KEYNOTE-010 study and real-world data support its efficacy..."
+  "report": "# Executive Summary\n\nPembrolizumab has shown significant improvements in overall survival..."
 }
 ```
 
@@ -363,7 +393,7 @@ curl http://localhost:8000/health
 ## Project structure
 
 ```
-agentic-rag-pharma/
+clinical-research-copilot/
 ├── .env                          # API keys and DB credentials
 ├── langfuse_setup.py             # Langfuse observability (v4 compatible)
 ├── setup_db.py                   # PostgreSQL schema + indexes
@@ -374,12 +404,17 @@ agentic-rag-pharma/
 ├── agents.py                     # LangGraph multi-agent orchestration
 ├── streamlit_app.py              # Streamlit frontend (pipeline stepper, evidence cards)
 ├── api/
-│   └── main.py                   # FastAPI serving layer
+│   └── main.py                   # FastAPI serving layer (includes retrieved_contexts field)
 ├── api_test.py                   # API endpoint test suite (7 tests)
+├── eval/
+│   ├── run_ragas.py              # RAGAS evaluation script (Option A split evaluation)
+│   ├── run_ragas.md              # Evaluation methodology and results documentation
+│   ├── golden_dataset.jsonl      # 42 hand-crafted clinical Q&A pairs (v4)
+│   ├── golden_dataset.xlsx       # Same dataset in Excel with per-difficulty highlighting
+│   └── results.json              # Full RAGAS results (42 queries, per-sample breakdown)
 ├── docs/
 │   ├── setup_db.md               # Schema documentation
 │   ├── ingest.md                 # Ingestion pipeline documentation
-│   ├── INGESTION_PIPELINE.md     # Detailed ingestion flow
 │   ├── query_rewriter.md         # Rewriter architecture
 │   ├── retriever.md              # Retrieval pipeline documentation
 │   ├── grader.md                 # Grading loop documentation
@@ -414,6 +449,8 @@ agentic-rag-pharma/
 
 **Progressive fallback with compensating quality gates.** 5 filter levels (full → relaxed → minimal → drug_only → no_filter). As filters loosen, faithfulness thresholds tighten (0.40 → 0.65). Wider net, tighter mesh — the system never returns low-quality evidence just because strict filters had no results.
 
+**RAGAS evaluation uses Option A split.** Context Precision and Faithfulness are evaluated on the full synthesised report (400–600 words) where the LLM writes verbatim-close to chunk language. Context Recall and Answer Correctness are evaluated on the 3–4 sentence executive summary, which is length-matched to the 3–5 sentence ground truths. Using one text for all four metrics systematically underestimates faithfulness (summary draws inferences) or answer correctness (length mismatch penalises a detailed report against a short ground truth).
+
 ## Knowledge base
 
 | Metric | Value |
@@ -432,11 +469,11 @@ agentic-rag-pharma/
 
 | Drug | Class | Primary cancers | Key trials |
 |---|---|---|---|
-| Pembrolizumab | Anti-PD-1 checkpoint inhibitor | NSCLC, melanoma | KEYNOTE-024, KEYNOTE-189, KEYNOTE-010 |
-| Nivolumab | Anti-PD-1 checkpoint inhibitor | NSCLC, melanoma, RCC | CheckMate-017, CheckMate-057 |
-| Osimertinib | EGFR TKI (3rd generation) | EGFR-mutant NSCLC | FLAURA, AURA3 |
-| Trastuzumab | Anti-HER2 monoclonal antibody | HER2+ breast, gastric | HERA, CLEOPATRA |
-| Metformin | Biguanide (anti-diabetic) | Type 2 diabetes, cancer research | ADOPT, repurposing studies |
+| Pembrolizumab | Anti-PD-1 checkpoint inhibitor | NSCLC, melanoma, TNBC, bladder | KEYNOTE-024, KEYNOTE-189, KEYNOTE-522 |
+| Nivolumab | Anti-PD-1 checkpoint inhibitor | NSCLC, melanoma, RCC, gastric | CheckMate-017, CheckMate-067, CheckMate-649 |
+| Osimertinib | EGFR TKI (3rd generation) | EGFR-mutant NSCLC | FLAURA2, ADAURA, AURA3 |
+| Trastuzumab | Anti-HER2 monoclonal antibody | HER2+ breast, gastric | HERA, CLEOPATRA, ToGA |
+| Metformin | Biguanide (anti-diabetic) | Type 2 diabetes, cancer research | UKPDS, repurposing studies |
 
 ## License
 

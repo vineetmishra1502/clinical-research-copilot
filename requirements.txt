@@ -21,3 +21,5 @@ uvicorn
 streamlit
 requests
 langfuse
+ragas
+langchain-community

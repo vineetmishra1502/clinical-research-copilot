@@ -185,25 +185,35 @@ class SectionResponse(BaseModel):
 
 
 class ResearchResponse(BaseModel):
-    """Response for POST /research — full pipeline output."""
-    query:            str
-    report:           str
-    overall_verdict:  Literal["accepted", "partial", "insufficient"]
-    evidence_summary: str
-    sections:         list[SectionResponse]
-    elapsed_seconds:  float
+    query:               str
+    report:              str
+    overall_verdict:     Literal["accepted", "partial", "insufficient"]
+    evidence_summary:    str
+    sections:            list[SectionResponse]
+    elapsed_seconds:     float
+    retrieved_contexts:  list[str]  # ← ADD: exact chunks agents used (for RAGAS)
 
     @classmethod
     def from_agent_output(cls, output: AgentOutput, elapsed: float) -> "ResearchResponse":
-        return cls(
-            query            = output.query,
-            report           = output.report,
-            overall_verdict  = output.overall_verdict,
-            evidence_summary = output.evidence_summary,
-            sections         = [SectionResponse.from_agent_section(s) for s in output.sections],
-            elapsed_seconds  = round(elapsed, 2),
-        )
+        # ← ADD: collect accepted chunk content across all agents, deduplicated
+        contexts: list[str] = []
+        seen: set[str] = set()
+        for agent_result in output.agent_results:
+            for graded_chunk in agent_result.grader_output.accepted_chunks:
+                content = graded_chunk.chunk.content
+                if content not in seen:
+                    seen.add(content)
+                    contexts.append(content)
 
+        return cls(
+            query              = output.query,
+            report             = output.report,
+            overall_verdict    = output.overall_verdict,
+            evidence_summary   = output.evidence_summary,
+            sections           = [SectionResponse.from_agent_section(s) for s in output.sections],
+            elapsed_seconds    = round(elapsed, 2),
+            retrieved_contexts = contexts,  # ← ADD
+        )
 
 class SearchResponse(BaseModel):
     """Response for POST /search — retrieval only output."""
@@ -267,11 +277,11 @@ app = FastAPI(
 # CORS — allow all origins for development
 # Restrict in production to specific frontend domains
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    CORSMiddleware,              # ← Use FastAPI's CORS middleware
+    allow_origins=["*"],         # ← Allow requests from ANY origin
+    allow_credentials=True,      # ← Allow cookies/auth headers to be sent
+    allow_methods=["*"],         # ← Allow ANY HTTP method (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],         # ← Allow ANY HTTP header in requests
 )
 
 
