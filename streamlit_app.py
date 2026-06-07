@@ -20,7 +20,7 @@ API_URL = "http://localhost:8000"
 # ─────────────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="Clinical Research Copilot",
+    page_title="Agentic-Clinical-Intelligence-Platform",
     page_icon="🧬",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -561,9 +561,9 @@ with st.sidebar:
     st.markdown(
         '<div class="sb-brand">'
         '<span class="sb-logo">🧬</span>'
-        '<span class="sb-title">Clinical Research<br>Copilot</span>'
+        '<span class="sb-title">Agentic Clinical Intelligence<br>Platform</span>'
         '</div>'
-        '<div class="sb-tagline">LangGraph-powered multi-agent research platform</div>',
+        '<div class="sb-tagline">AI-powered oncology evidence synthesis at scale</div>',
         unsafe_allow_html=True,
     )
 
@@ -653,7 +653,7 @@ with st.sidebar:
 
 st.markdown(
     '<div class="hero">'
-    '<div class="hero-title">Clinical Research Copilot</div>'
+    '<div class="hero-title">Agentic Clinical Intelligence Platform</div>'
     '<div class="hero-tag">LangGraph-Powered Multi-Agent Research Platform</div>'
     '<div class="hero-desc">'
     'Transform clinical questions into evidence-backed research reports using '
@@ -761,10 +761,11 @@ if mode == "Research":
 
                     # Report
                     st.markdown("---")
-                    st.markdown("#### 📄 Research brief")
-                    # Make PMIDs in the report clickable PubMed links
+                    st.markdown("#### Research brief")
                     import re
                     report_text = data["report"]
+                    # Linkify [PMID: XXXXX] in the References section only
+                    # (body citations are stripped server-side; references use [[PubMed]] links)
                     report_text = re.sub(
                         r'\[PMID:\s*(\d+)\]',
                         r'[PMID: \1](https://pubmed.ncbi.nlm.nih.gov/\1/)',

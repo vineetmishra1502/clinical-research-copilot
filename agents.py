@@ -45,6 +45,7 @@ LangChain usage:
 """
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from typing import Literal, Annotated
 import operator
@@ -737,13 +738,13 @@ You receive sections from multiple specialist agents and merge them into
 one cohesive, comprehensive research brief.
 
 Rules:
-- Preserve all citations from each section — do not drop any
+- Do NOT include inline citations in the prose (no [PMID: XXXXX] or [Trial, Journal Year] in body text)
+- Write clean, evidence-based narrative — all sources are listed in the References section appended after the report
 - Do not introduce new clinical claims not present in any section
 - If any section has limited evidence, reflect that in the overall report
 - Write in a structured markdown format with clear section headings
 - Add an executive summary at the top (3-5 sentences)
-- Add a limitations section at the end combining all agent limitations
-- Use consistent citation format throughout: [PMID: XXXXX] or [Trial, Journal Year]"""
+- Add a limitations section at the end combining all agent limitations"""
 
 _SYNTHESIZER_HUMAN = """Original user query: {query}
 
@@ -807,6 +808,38 @@ def _build_evidence_summary(agent_results: list[AgentResult]) -> str:
     return "\n".join(lines)
 
 
+def _build_references_section(agent_results: list[AgentResult]) -> str:
+    """
+    Collects citations from all agent sections, deduplicates by PMID,
+    and returns a numbered markdown References block with PubMed links.
+    Falls back to the full citation string as the dedup key when no PMID found.
+    """
+    seen_keys: set[str] = set()
+    unique_citations: list[tuple[str, str]] = []  # (pmid_key, citation_str)
+
+    for r in agent_results:
+        for citation in r.section.citations:
+            match = re.search(r'\[PMID:\s*(\S+?)\]', citation)
+            key = match.group(1).rstrip(']') if match else citation
+            if key not in seen_keys:
+                seen_keys.add(key)
+                unique_citations.append((key, citation))
+
+    if not unique_citations:
+        return ""
+
+    lines = ["\n\n---\n", "## References\n"]
+    for i, (key, citation) in enumerate(unique_citations, 1):
+        if key.isdigit():
+            lines.append(
+                f"{i}. {citation} "
+                # f"[[PubMed]](https://pubmed.ncbi.nlm.nih.gov/{key}/)"
+            )
+        else:
+            lines.append(f"{i}. {citation}")
+    return "\n".join(lines)
+
+
 async def synthesizer_node(state: GraphState) -> dict:
     """
     Synthesizer node — final node in the graph.
@@ -857,6 +890,13 @@ async def synthesizer_node(state: GraphState) -> dict:
     except Exception as e:
         print(f"Synthesizer failed: {e}. Using concatenated sections.")
         report = f"# Research Brief\n\n**Query:** {query}\n\n" + sections_text
+
+    # Strip any inline [PMID: XXXXX] citations the LLM may have included despite instructions
+    report = re.sub(r'\s*\[PMID:\s*\S+?\]', '', report).strip()
+
+    references = _build_references_section(agent_results)
+    if references:
+        report += references
 
     final_output = AgentOutput(
         report           = report,
