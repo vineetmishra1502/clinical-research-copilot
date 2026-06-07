@@ -1,4 +1,4 @@
-# Clinical Research Copilot
+# Agentic Clinical Intelligence Platform
 
 **LangGraph-powered multi-agent research platform for oncology evidence synthesis.**
 
