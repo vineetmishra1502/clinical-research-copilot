@@ -10,9 +10,9 @@ tracing.py
 .claude
 posgrest_data_fetch.ipynb
 __pycache__
-mcp_server.py
 test_mcp_protocol.py
 test_langfuse_debug.py
 mcp_server.py
 CLAUDE.md
 call_research.py
+mcp_server.py
